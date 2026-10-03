@@ -24,13 +24,13 @@ namespace {
         return seglist;
     }
 
-    class Analysis{
+    class Pass1{
         private:    
             std::string line;
             int line_count = 0;
 
         public:
-            Analysis() {}
+            Pass1() {}
 
             void setLine(std::string str) {
                 this->line = str;
@@ -87,7 +87,7 @@ namespace {
             }
     };
 
-    class Synthesis{};
+    class Pass2{};
 }
 
 class assembler{
