@@ -7,6 +7,7 @@
 #include <string>
 #include <sstream>
 #include <regex>
+#include <fstream>
 #include <cmath>
 
 namespace {
@@ -219,6 +220,48 @@ namespace {
     };
 }
 
-class assembler{
+class Assembler{
+    private:
+        Pass1 pass1;
+        Pass2 pass2;
+        std::vector<std::string> str_file;
+        std::vector<std::map<std::string, std::string>> pass1_result;
+
+        void pass1Tranform(){
+            for(int i=0; i<str_file.size(); i++){
+                pass1.setLine(str_file[i]);
+                pass1_result.push_back(pass1.compute());
+            }
+        }
+
+        void pass2AndWrite(){
+            std::ofstream file("machine.txt");
+            if (!file.is_open()) {
+                std::cerr << "Error: Can't Open File" << std::endl;
+                exit(1);
+            }
+            for(int i=0; i<pass1_result.size(); i++){
+                if(pass1_result[i].empty()) continue;
+                pass2.setCode(pass1_result[i]);
+                file << pass2.compute() << std::endl;
+            }
+            file.close();
+        }
     
+    public:
+        Assembler(std::string filename){
+            std::ifstream file(filename);
+            if (!file.is_open()){
+                std::cerr << "Error: File not found" << std::endl;
+                exit(1);
+            }
+             std::string str_line;
+            while (std::getline(file, str_line)) {
+                str_file.push_back(str_line);
+            }
+            file.close();
+            pass1Tranform();
+            pass2AndWrite();
+            exit(0);
+        }
 };
