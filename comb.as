@@ -1,4 +1,4 @@
-lw      0       1       n           # โหลดพารามิเตอร์ n และ r
+        lw      0       1       n           # โหลดพารามิเตอร์ n และ r
         lw      0       2       r
         lw      0       6       combAdr
         jalr    6       7                   # กระโดดไปฟังก์ชัน comb โดยให้ reg7 เก็บ return address

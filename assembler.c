@@ -199,7 +199,7 @@ int Read(FILE *inFilePtr, char *label, char *opcode, char *arg0,
 
     label[0] = opcode[0] = arg0[0] = arg1[0] = arg2[0] = '\0';
     if (fgets(line, MAXLINELENGTH, inFilePtr) == NULL) return 0;
-    if (strchr(line, '\n') == NULL) {
+    if (strchr(line, '\n') == NULL&& !feof(inFilePtr)) {
         printf("error: line too long\n");
         exit(1);
     }
