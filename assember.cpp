@@ -6,13 +6,15 @@
 #include <list>
 #include <string>
 #include <sstream>
+#include <regex>
+#include <cmath>
 
 namespace {
     // instruction set
     const std::set<std::string> ins_set = {"add", "nand", "lw", "sw", "beq", "jalr", "halt", "noop", ".fill"};
     std::map<std::string, int> label;
 
-    // split string to vecter
+    // split string to List
     std::list<std::string> split(std::string str) {
         std::stringstream ss(str);
         std::string segment;
@@ -27,20 +29,21 @@ namespace {
     class Pass1{
         private:    
             std::string line;
-            int line_count = 0;
+            int line_count = -1;
 
         public:
-            Pass1() {}
+            Pass1(){}
 
             void setLine(std::string str) {
                 this->line = str;
-                line_count++;
             }
 
-            std::map<std::string, std::string> analyze() {
+            std::map<std::string, std::string> compute() {
                 std::map<std::string, std::string> result;
                 std::list<std::string> list = split(line);
                 if(list.empty()) {return result;}
+                line_count++;
+                result.insert({"address", std::to_string(line_count)});
                 std::vector<std::string> format = {"label", "instruction", "field0", "field1", "field2"};
                 std::string op;
                 int size = 0;
@@ -87,7 +90,133 @@ namespace {
             }
     };
 
-    class Pass2{};
+    class Pass2{
+        private:
+            std::map<std::string, std::string> code;
+
+            bool isNumber(std::string str){
+                std::regex pattern("^[+-]?[0-9]*$");
+                return std::regex_match(str, pattern);
+            }
+
+            int stringToInt(std::string str){
+                int num = 0;
+                std::stringstream ss(str);
+                ss >> num;
+                return num;
+            }
+
+            std::vector<int> intToBinaryVec(int num, int size){
+                if(num<0) {
+                    num += (1 << size);
+                }
+                std::vector<int> binaryVec;
+                for(int i=0; i<size; i++){
+                    binaryVec.insert(binaryVec.begin(), num%2);
+                    num /= 2;
+                }
+                return binaryVec;
+            }
+
+            std::vector<int> strToBinaryVec(std::string str, int size){
+                int num = stringToInt(str);
+                return intToBinaryVec(num, size);
+            }
+
+            void checkLebel(std::string str, int line){
+                if(label.count(str) == 0) {
+                    std::cerr << "Error: Undefined Label at line " << line << std::endl;
+                    exit(1);
+                }
+            }
+
+            void checkOffset16(int i, int line){
+                if(i<-32768|| i>32767){
+                    std::cerr << "Error: offsetField out of range at line " << line << std::endl;
+                    exit(1);
+                }
+            }
+
+        public:
+            Pass2(){}
+
+            void setCode(const std::map<std::string, std::string>& newCode) {
+                code = newCode;
+            }
+
+            int compute() {
+                std::vector<int> bi;
+                std::string op = code.at("instruction");
+                if(op == "add" || op == "nand"){
+                    if(op == "add") bi = {0, 0, 0};
+                    else bi = {0, 0, 1};
+                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
+                    bi.insert(bi.end(), field0.begin(), field0.end());
+                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
+                    bi.insert(bi.end(), field1.begin(), field1.end());
+                    for(int i=3; i<16; i++){
+                        bi.push_back(0);
+                    }
+                    std::vector<int> field2 = strToBinaryVec(code.at("field2"), 3);
+                    bi.insert(bi.end(), field2.begin(), field2.end());
+                }
+                else if(op == "lw" || op == "sw" || op == "beq"){
+                    if(op == "lw") bi = {0, 1, 0};
+                    else if(op == "sw") bi = {0, 1, 1};
+                    else bi = {1, 0, 0};
+                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
+                    bi.insert(bi.end(), field0.begin(), field0.end());
+                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
+                    bi.insert(bi.end(), field1.begin(), field1.end());
+                    std::vector<int> field2;
+                    if(isNumber(code.at("field2"))) {
+                        checkOffset16(stringToInt(code.at("field2")), stringToInt(code.at("address")));
+                        field2 = strToBinaryVec(code.at("field2"), 16);
+                    }
+                    else if(op != "beq"){
+                        checkLebel(code.at("field2"), stringToInt(code.at("address")));
+                        checkOffset16(label.at(code.at("field2")), stringToInt(code.at("address")));
+                        field2 = intToBinaryVec(label.at(code.at("field2")), 16);
+                    }
+                    else {
+                        checkLebel(code.at("field2"), stringToInt(code.at("address")));
+                        int field2Demo = label.at(code.at("field2")) - stringToInt(code.at("address")) - 1;
+                        checkOffset16(field2Demo, stringToInt(code.at("address")));
+                        field2 = intToBinaryVec(field2Demo, 16);
+                    }
+                    bi.insert(bi.end(), field2.begin(), field2.end());
+                }
+                else if (op == "jalr"){
+                    bi = {1, 0, 1};
+                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
+                    bi.insert(bi.end(), field0.begin(), field0.end());
+                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
+                    bi.insert(bi.end(), field1.begin(), field1.end());
+                    for(int i=0; i<16; i++){
+                        bi.push_back(0);
+                    }
+                }
+                else if (code.at("instruction") == "halt") return 25165824;
+                else if (code.at("instruction") == "noop") return 29360128;
+                else {
+                    if(isNumber(code.at("field0"))){
+                        return stringToInt(code.at("field0"));
+                    }
+                    checkLebel(code.at("field0"), stringToInt(code.at("address")));
+                    return label.at(code.at("field0"));
+                }
+
+                int result = 0;
+                int b = 1;
+                for(int i=bi.size(); i>0; i--){
+                    result += bi[i-1]*b;
+                    b *= 2;
+                }
+                
+                return result;
+            }
+
+    };
 }
 
 class assembler{
