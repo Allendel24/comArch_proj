@@ -21,3 +21,6 @@ build/simulator output/mult.mc
 ```
 
 `make clean` removes the assembler/simulator binaries and generated sample outputs.
+
+On Windows, use GNU Make with a C++17 compiler such as MinGW-w64 `g++` on `PATH`.
+The executables use the `.exe` suffix; PowerShell handles directory creation and cleanup.
