@@ -1,306 +1,168 @@
-#include <iostream>
-#include <cstdlib>
-#include <set>
-#include <map>
-#include <vector>
-#include <list>
-#include <string>
-#include <sstream>
-#include <regex>
+#include "Assembler.hpp"
+
+#include <cstdint>
+#include <cctype>
 #include <fstream>
-#include <cmath>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace {
-    // instruction set
-    const std::set<std::string> ins_set = {"add", "nand", "lw", "sw", "beq", "jalr", "halt", "noop", ".fill"};
-    // label table
-    std::map<std::string, int> label;
-    // split string to List
-    std::list<std::string> split(std::string str) {
-        std::stringstream ss(str);
-        std::string segment;
-        // list of segment
-        std::list<std::string> seglist;
+constexpr std::size_t kMemorySize = 65536;
 
-        while (ss >> segment) {
-            seglist.push_back(segment);
-        }
-        return seglist;
+struct SourceLine {
+    int address;
+    std::string opcode;
+    std::vector<std::string> args;
+};
+
+const std::unordered_map<std::string, int> opcodes = {
+    {"add", 0}, {"nand", 1}, {"lw", 2}, {"sw", 3},
+    {"beq", 4}, {"jalr", 5}, {"halt", 6}, {"noop", 7}
+};
+
+long long parseNumber(const std::string& token, int line) {
+    std::size_t consumed = 0;
+    try {
+        const long long value = std::stoll(token, &consumed, 10);
+        if (consumed != token.size()) throw std::invalid_argument("trailing characters");
+        return value;
+    } catch (const std::exception&) {
+        throw std::runtime_error("line " + std::to_string(line) + ": invalid number '" + token + "'");
     }
-
-    class Pass1{
-        private:
-            // string in each line
-            std::string line;
-            int line_count = -1;
-
-        public:
-            Pass1(){}
-
-            void setLine(std::string str) {
-                this->line = str;
-            }
-
-            // Convert a string into assembly format
-            std::map<std::string, std::string> compute() {
-                std::map<std::string, std::string> result;
-                std::list<std::string> list = split(line);
-                if(list.empty()) {return result;}
-                line_count++;
-                // set address of code in this line
-                result.insert({"address", std::to_string(line_count)});
-                std::vector<std::string> formats = {"label", "instruction", "field0", "field1", "field2"};
-                // variable of field
-                std::string f;
-                // size of field in each format
-                int size = 0;
-                // check if The very front of field is instruction?
-                if(ins_set.count(list.front())){
-                    f = list.front();
-                    result.insert({formats[1], f});
-                    list.pop_front();
-                }
-                else{
-                    // if not will assume that is lable
-                    if(label.find(list.front()) != label.end()) {
-                        std::cerr << "Error: Duplicate label " << list.front() << " in line " << line_count << std::endl;
-                        exit(1);
-                    }
-                    result.insert({formats[0], list.front()});
-                    label.insert({list.front(), line_count});
-                    list.pop_front();
-                    if(list.empty()) {return result;}
-                    
-                    // check if next is instruction?
-                    if(ins_set.count(list.front())){
-                        f = list.front();
-                        result.insert({formats[1], f});
-                        list.pop_front();
-                    }
-                    else{
-                        std::cerr << "Error: Unknown opcode " << list.front() << " in line " << line_count << std::endl;
-                        exit(1);
-                    }
-
-                }
-
-                // set size of field according to the instruction
-                if(f == "add" || f == "nand" || f == "lw" || f == "sw" || f == "beq"){size = 3;}
-                else if(f == "jalr"){size = 2;}
-                else if(f == ".fill"){size = 1;}
-                // if instruction is noop or halt use default
-                //The excess will be ignored and turned into a comment
-                
-                // check if in the line has all the field and put it in result map
-                for(int i=0; i<size; i++){
-                    if(list.empty()) {
-                        std::cerr << "Error: missing field for instruction " << f << " in line " << line_count << std::endl;
-                        exit(1);
-                    }
-                    result.insert({formats[i+2], list.front()});
-                    list.pop_front();
-                }
-                return result;
-            }
-    };
-
-    class Pass2{
-        private:
-            std::map<std::string, std::string> code;
-
-            // check is string has farmat of number?
-            bool isNumber(std::string str){
-                std::regex pattern("^[+-]?[0-9]*$");
-                return std::regex_match(str, pattern);
-            }
-
-            // transform string to int
-            int stringToInt(std::string str){
-                int num = 0;
-                std::stringstream ss(str);
-                ss >> num;
-                return num;
-            }
-
-            // transform int to vector of binary
-            std::vector<int> intToBinaryVec(int num, int size){
-                if(num<0) {
-                    num += (1 << size);
-                }
-                std::vector<int> binaryVec;
-                for(int i=0; i<size; i++){
-                    binaryVec.insert(binaryVec.begin(), num%2);
-                    num /= 2;
-                }
-                return binaryVec;
-            }
-
-            // transform int to string of binary
-            std::vector<int> strToBinaryVec(std::string str, int size){
-                int num = stringToInt(str);
-                return intToBinaryVec(num, size);
-            }
-
-            // check Undefined Label
-            void checkLebel(std::string str, int line){
-                if(label.count(str) == 0) {
-                    std::cerr << "Error: Undefined Label at line " << line << std::endl;
-                    exit(1);
-                }
-            }
-
-            // check OffsetField Out of Range
-            void checkOffset16(int i, int line){
-                if(i<-32768|| i>32767){
-                    std::cerr << "Error: OffsetField Out of Range at line " << line << std::endl;
-                    exit(1);
-                }
-            }
-
-        public:
-            Pass2(){}
-
-            void setCode(const std::map<std::string, std::string>& newCode) {
-                code = newCode;
-            }
-
-            int compute() {
-                // vector of binary
-                std::vector<int> bi;
-                // variable of instruction field
-                std::string op = code.at("instruction");
-                // check if instruction field is R-type
-                if(op == "add" || op == "nand"){
-                    if(op == "add") bi = {0, 0, 0};
-                    else bi = {0, 0, 1};
-                    // assign the field to a variable
-                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
-                    // concatenate vectors
-                    bi.insert(bi.end(), field0.begin(), field0.end());
-                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
-                    bi.insert(bi.end(), field1.begin(), field1.end());
-                    Padding a vector with zeros
-                    for(int i=3; i<16; i++){
-                        bi.push_back(0);
-                    }
-                    std::vector<int> field2 = strToBinaryVec(code.at("field2"), 3);
-                    bi.insert(bi.end(), field2.begin(), field2.end());
-                }
-                // check if instruction field is I-type
-                else if(op == "lw" || op == "sw" || op == "beq"){
-                    if(op == "lw") bi = {0, 1, 0};
-                    else if(op == "sw") bi = {0, 1, 1};
-                    else bi = {1, 0, 0};
-                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
-                    bi.insert(bi.end(), field0.begin(), field0.end());
-                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
-                    bi.insert(bi.end(), field1.begin(), field1.end());
-                    std::vector<int> field2;
-                    // check if field2 is offsetField?
-                    if(isNumber(code.at("field2"))) {
-                        checkOffset16(stringToInt(code.at("field2")), stringToInt(code.at("address")));
-                        field2 = strToBinaryVec(code.at("field2"), 16);
-                    }
-                    // check if instruction field is lw or sw?
-                    else if(op != "beq"){
-                        checkLebel(code.at("field2"), stringToInt(code.at("address")));
-                        checkOffset16(label.at(code.at("field2")), stringToInt(code.at("address")));
-                        field2 = intToBinaryVec(label.at(code.at("field2")), 16);
-                    }
-                    else {
-                        checkLebel(code.at("field2"), stringToInt(code.at("address")));
-                        int field2Demo = label.at(code.at("field2")) - stringToInt(code.at("address")) - 1;
-                        checkOffset16(field2Demo, stringToInt(code.at("address")));
-                        field2 = intToBinaryVec(field2Demo, 16);
-                    }
-                    bi.insert(bi.end(), field2.begin(), field2.end());
-                }
-                // check if instruction field is jalr?
-                else if (op == "jalr"){
-                    bi = {1, 0, 1};
-                    std::vector<int> field0 = strToBinaryVec(code.at("field0"), 3);
-                    bi.insert(bi.end(), field0.begin(), field0.end());
-                    std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
-                    bi.insert(bi.end(), field1.begin(), field1.end());
-                    for(int i=0; i<16; i++){
-                        bi.push_back(0);
-                    }
-                }
-                // check if instruction field is halt
-                else if (code.at("instruction") == "halt") return 25165824; 
-                // check if instruction field is noop
-                else if (code.at("instruction") == "noop") return 29360128;
-                // instruction field is .fill
-                else {
-                    if(isNumber(code.at("field0"))){
-                        return stringToInt(code.at("field0"));
-                    }
-                    checkLebel(code.at("field0"), stringToInt(code.at("address")));
-                    return label.at(code.at("field0"));
-                }
-
-                int result = 0;
-                int b = 1;
-                // transform vector of binary in int
-                for(int i=bi.size(); i>0; i--){
-                    result += bi[i-1]*b;
-                    b *= 2;
-                }
-                
-                return result;
-            }
-
-    };
 }
 
-class Assembler{
-    private:
-        Pass1 pass1;
-        Pass2 pass2;
-        // variable of string in every line
-        std::vector<std::string> str_file;
-        // variable of assembly's format in every line
-        std::vector<std::map<std::string, std::string>> pass1_result;
+int registerNumber(const std::string& token, int line) {
+    const long long value = parseNumber(token, line);
+    if (value < 0 || value > 7) {
+        throw std::runtime_error("line " + std::to_string(line) + ": register must be in [0, 7]");
+    }
+    return static_cast<int>(value);
+}
 
-        // transform str_file to pass1_result by using pass1
-        void pass1Tranform(){
-            for(int i=0; i<str_file.size(); i++){
-                pass1.setLine(str_file[i]);
-                pass1_result.push_back(pass1.compute());
+int signedOffset(long long value, int line) {
+    if (value < -32768 || value > 32767) {
+        throw std::runtime_error("line " + std::to_string(line) + ": offset does not fit in 16 bits");
+    }
+    return static_cast<int>(value) & 0xffff;
+}
+
+bool isNumericLiteral(const std::string& token) {
+    if (token.empty()) return false;
+    const std::size_t first_digit = (token[0] == '+' || token[0] == '-') ? 1 : 0;
+    return first_digit < token.size() && std::isdigit(static_cast<unsigned char>(token[first_digit]));
+}
+
+int resolveValue(const std::string& token, int line,
+                 const std::unordered_map<std::string, int>& labels) {
+    if (!isNumericLiteral(token)) {
+        const auto found = labels.find(token);
+        if (found == labels.end()) {
+            throw std::runtime_error("line " + std::to_string(line) + ": undefined label '" + token + "'");
+        }
+        return found->second;
+    }
+
+    const long long value = parseNumber(token, line);
+    if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+        throw std::runtime_error("line " + std::to_string(line) + ": value is outside 32-bit range");
+    }
+    return static_cast<int>(value);
+}
+
+std::vector<SourceLine> readSource(const std::string& path,
+                                   std::unordered_map<std::string, int>& labels) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("cannot open assembly file '" + path + "'");
+
+    std::vector<SourceLine> lines;
+    std::string text;
+    int source_line = 0;
+    while (std::getline(input, text)) {
+        ++source_line;
+        const auto comment = text.find('#');
+        if (comment != std::string::npos) text.erase(comment);
+
+        std::istringstream words(text);
+        std::vector<std::string> fields;
+        for (std::string field; words >> field;) fields.push_back(std::move(field));
+        if (fields.empty()) continue;
+        if (lines.size() == kMemorySize) {
+            throw std::runtime_error("line " + std::to_string(source_line) + ": program exceeds LC-2K memory capacity");
+        }
+
+        std::size_t index = 0;
+        if (opcodes.count(fields[0]) == 0 && fields[0] != ".fill") {
+            const std::string& name = fields[index++];
+            if (labels.count(name)) {
+                throw std::runtime_error("line " + std::to_string(source_line) + ": duplicate label '" + name + "'");
+            }
+            labels.emplace(name, static_cast<int>(lines.size()));
+            if (index == fields.size()) {
+                throw std::runtime_error("line " + std::to_string(source_line) + ": label has no instruction");
             }
         }
 
-        // transform pass1_result of int by using pass2 and write it in to file
-        void pass2AndWrite(){
-            std::ofstream file("machine.txt");
-            if (!file.is_open()) {
-                std::cerr << "Error: Can't Open File" << std::endl;
-                exit(1);
-            }
-            for(int i=0; i<pass1_result.size(); i++){
-                if(pass1_result[i].empty()) continue;
-                pass2.setCode(pass1_result[i]);
-                file << pass2.compute() << std::endl;
-            }
-            file.close();
+        SourceLine line{static_cast<int>(lines.size()), fields[index++], {}};
+        if (line.opcode != ".fill" && opcodes.count(line.opcode) == 0) {
+            throw std::runtime_error("line " + std::to_string(source_line) + ": unknown opcode '" + line.opcode + "'");
         }
-    
-    public:
-        Assembler(std::string filename){
-            std::ifstream file(filename);
-            // check if file can open?
-            if (!file.is_open()){
-                std::cerr << "Error: File not found" << std::endl;
-                exit(1);
-            }
-            std::string str_line;
-            // push string of each line in str_file
-            while (std::getline(file, str_line)) {
-                str_file.push_back(str_line);
-            }
-            file.close();
-            pass1Tranform();
-            pass2AndWrite();
-            exit(0);
+        while (index < fields.size()) line.args.push_back(fields[index++]);
+
+        const std::size_t expected = line.opcode == "add" || line.opcode == "nand" ||
+            line.opcode == "lw" || line.opcode == "sw" || line.opcode == "beq" ? 3 :
+            line.opcode == "jalr" ? 2 : line.opcode == ".fill" ? 1 : 0;
+        if (line.args.size() != expected) {
+            throw std::runtime_error("line " + std::to_string(source_line) + ": wrong number of operands for '" + line.opcode + "'");
         }
-};
+        lines.push_back(std::move(line));
+    }
+    if (input.bad()) throw std::runtime_error("error reading assembly file '" + path + "'");
+    return lines;
+}
+
+int encode(const SourceLine& line, const std::unordered_map<std::string, int>& labels) {
+    if (line.opcode == ".fill") return resolveValue(line.args[0], line.address + 1, labels);
+
+    const int opcode = opcodes.at(line.opcode);
+    const int a = line.args.size() >= 1 ? registerNumber(line.args[0], line.address + 1) : 0;
+    const int b = line.args.size() >= 2 ? registerNumber(line.args[1], line.address + 1) : 0;
+    std::uint32_t instruction = static_cast<std::uint32_t>(opcode) << 22;
+    instruction |= static_cast<std::uint32_t>(a) << 19;
+    instruction |= static_cast<std::uint32_t>(b) << 16;
+
+    if (line.opcode == "add" || line.opcode == "nand") {
+        instruction |= static_cast<std::uint32_t>(registerNumber(line.args[2], line.address + 1));
+    } else if (line.opcode == "lw" || line.opcode == "sw" || line.opcode == "beq") {
+        long long offset;
+        const auto label = labels.find(line.args[2]);
+        if (label != labels.end()) {
+            offset = line.opcode == "beq" ? label->second - (line.address + 1) : label->second;
+        } else if (isNumericLiteral(line.args[2])) {
+            offset = parseNumber(line.args[2], line.address + 1);
+        } else {
+            throw std::runtime_error("line " + std::to_string(line.address + 1) + ": undefined label '" + line.args[2] + "'");
+        }
+        instruction |= static_cast<std::uint32_t>(signedOffset(offset, line.address + 1));
+    }
+    return static_cast<int>(instruction);
+}
+}
+
+void Assembler::assemble(const std::string& input_path, const std::string& output_path) {
+    std::unordered_map<std::string, int> labels;
+    const auto lines = readSource(input_path, labels);
+    std::vector<int> machine_code;
+    machine_code.reserve(lines.size());
+    for (const auto& line : lines) machine_code.push_back(encode(line, labels));
+
+    std::ofstream output(output_path);
+    if (!output) throw std::runtime_error("cannot open output file '" + output_path + "'");
+    for (const int word : machine_code) output << word << '\n';
+    if (!output) throw std::runtime_error("error writing machine code to '" + output_path + "'");
+}
