@@ -2,11 +2,13 @@
 #include <fstream>
 #include <string>
 #include <cstdlib>
-#include <cstdio> 
+#include <cstdio>
 
-#define NUMMEMORY 65536 
-#define NUMREGS 8 
+// กำหนดขนาดของระบบ : Memory มี 65536 ช่อง และมีที่เก็บข้อมูลพักชั่วคราว รีจิสเตอร์ 8 ตัว
+#define NUMMEMORY 65536
+#define NUMREGS 8
 
+// สร้างโครงสร้าง stateStruct ไว้ดูว่าตอนนี้ทำงานถึงบรรทัดไหน (pc), Memory มีอะไรบ้าง (mem), รีจิสเตอร์มีค่าเท่าไหร่ (reg)
 typedef struct stateStruct {
     int pc;
     int mem[NUMMEMORY];
@@ -16,7 +18,7 @@ typedef struct stateStruct {
 
 void printState(stateType *);
 
-// เพิ่มฟังก์ชันสำหรับทำ Sign-extension ให้กับ immediate 16-bit
+// ฟังก์ชันนี้เอาไว้จัดการ เลขติดลบ ให้ทำงานในคอมได้อย่างถูกต้อง
 int convertNum(int num) {
     if (num & (1 << 15)) {
         num -= (1 << 16);
@@ -25,11 +27,13 @@ int convertNum(int num) {
 }
 
 int main(int argc, char *argv[]) {
+    // เช็คก่อนว่าตอนสั่งรันโปรแกรม มี machine code มาด้วยไหม
     if (argc != 2) {
         std::cerr << "error: usage: " << argv[0] << " <machine-code file>\n";
         std::exit(1);
     }
 
+    // เปิด machine code
     std::ifstream filePtr(argv[1]);
     if (!filePtr) {
         std::cerr << "error: can't open file " << argv[1] << '\n';
@@ -39,111 +43,112 @@ int main(int argc, char *argv[]) {
     stateType state;
     state.numMemory = 0;
 
+    // อ่านตัวเลขในไฟล์ทีละบรรทัด มาเรียงเก็บไว้ใน Memory
     while (filePtr >> state.mem[state.numMemory]) {
-        // std::cout << "memory[" << state.numMemory << "]=" << state.mem[state.numMemory] << '\n';
         state.numMemory++;
         
+        // ถ้าไฟล์มีขนาดเกินขนาด Memory ให้หยุดอ่าน
         if (state.numMemory >= NUMMEMORY) {
             break;
         }
     }
     filePtr.close();
     
-    // --- เริ่มต้นส่วน Initialization ---
+    // รีเซ็ตเครื่องก่อนเริ่มทำงานจริง : เริ่มที่บรรทัดแรก (pc = 0) และล้างค่ารีจิสเตอร์ทั้งหมดให้เป็น 0
     state.pc = 0;
     for (int i = 0; i < NUMREGS; i++) {
         state.reg[i] = 0;
     }
-    int instrCount = 0;
+    int instrCount = 0; // นับว่าทำงานไปกี่คำสั่งแล้ว
 
-    // --- เริ่มต้น Simulation Loop ---
+    // วงจรการทำงานหลักของเครื่อง (จะวนไปเรื่อย ๆ จนกว่าจะเจอคำสั่งหยุด)
     while (true) {
-        // 1. พิมพ์สถานะก่อน Execute ทุกครั้ง
+        // โชว์ stateStruct ของระบบก่อนทำงานทุกครั้ง
         printState(&state);
 
-        // ป้องกันการเข้าถึง Memory นอกขอบเขต
+        // เช็คความปลอดภัย : ห้ามเครื่องกระโดดไปอ่าน Memory นอกกรอบ
         if (state.pc < 0 || state.pc >= NUMMEMORY) {
             std::cerr << "error: pc out of bounds\n";
             std::exit(1);
         }
 
-        // 2. Fetch คำสั่ง
+        // ดึง คำสั่ง จาก Memory บรรทัดปัจจุบัน (pc) ออกมา
         int instr = state.mem[state.pc];
 
-        // 3. Decode คำสั่ง (แกะบิต)
-        int opcode = (instr >> 22) & 0x7;
-        int rs = (instr >> 19) & 0x7;
-        int rt = (instr >> 16) & 0x7;
-        int rd = instr & 0x7;
-        int imm16 = instr & 0xFFFF;
+        // แกะรหัส คำสั่งนั้น (จะเป็นตัวเลขก้อนยาวๆ ต้องตัดแบ่งเป็นส่วนๆ)
+        int opcode = (instr >> 22) & 0x7; // เลื่อนตัวเลขไปทางขวา 22 ก้าว แล้วตัดเอามาแค่ 3 ตัวท้ายสุด ชนิดของคำสั่ง (ทำอะไรดี?)
+        int rs = (instr >> 19) & 0x7;     // เลื่อนตัวเลขไปขวา 19 ก้าว แล้วตัดมา 3 ตัวท้าย (ใช้ข้อมูลจากตัวไหน)
+        int rt = (instr >> 16) & 0x7;     // เลื่อนไปขวา 16 ก้าว แล้วตัดมา 3 ตัวท้าย (ใช้ข้อมูลจากตัวไหน)
+        int rd = instr & 0x7;             // ไม่ต้องเลื่อนทิ้ง อยู่ริมขวาสุดอยู่แล้ว ตัด 3 ตัวท้ายออกมาได้เลย (เก็บผลลัพธ์ไว้ที่ไหน)
+        int imm16 = instr & 0xFFFF;       // ม่ต้องเลื่อน แต่เปลี่ยนแม่พิมพ์ให้ใหญ่ขึ้นเป็นตัดเอา 16 ตัวท้ายออกมาเลย (ตัวเลขพิเศษ)
 
-        // 4. Execute คำสั่งตาม Opcode
+        // เริ่มลงมือทำตามชนิดของคำสั่ง (opcode)
         switch (opcode) {
-            case 0: // add
+            case 0: // add: เอาข้อมูลมา บวก กัน
                 state.reg[rd] = state.reg[rs] + state.reg[rt];
-                state.pc += 1;
+                state.pc += 1; // ขยับไปทำบรรทัดถัดไป
                 break;
 
-            case 1: // nand
+            case 1: // nand: เอาข้อมูลมาเทียบกันแบบ NAND
                 state.reg[rd] = ~(state.reg[rs] & state.reg[rt]);
                 state.pc += 1;
                 break;
 
-            case 2: // lw
+            case 2: // lw: ดึง ข้อมูลจาก Memory มาเก็บในรีจิสเตอร์
                 state.reg[rt] = state.mem[state.reg[rs] + convertNum(imm16)];
                 state.pc += 1;
                 break;
 
-            case 3: // sw
+            case 3: // sw: บันทึก ข้อมูลจากรีจิสเตอร์ ลงไปในเมมโมรี่
                 state.mem[state.reg[rs] + convertNum(imm16)] = state.reg[rt];
                 state.pc += 1;
                 break;
 
-            case 4: // beq
+            case 4: // beq: กระโดด ถ้าข้อมูลสองตัวเท่ากัน
                 if (state.reg[rs] == state.reg[rt]) {
-                    state.pc = state.pc + 1 + convertNum(imm16);
+                    state.pc = state.pc + 1 + convertNum(imm16); // กระโดดไปบรรทัดเป้าหมาย
                 } else {
-                    state.pc += 1;
+                    state.pc += 1; // ถ้าไม่เท่ากัน ก็ทำบรรทัดถัดไปปกติ
                 }
                 break;
 
-            case 5: // jalr
-                { 
-                    // ใช้ block scope {...} เพื่อสร้างตัวแปรใน switch-case
+            case 5: // jalr: กระโดดและจำทางกลับ
+                {
                     int nextPC = state.pc + 1;
                     state.pc = state.reg[rs];
                     state.reg[rt] = nextPC;
                 }
                 break;
 
-            case 6: // halt
+            case 6: // halt: สั่งหยุดเครื่อง
                 state.pc += 1;
-                state.reg[0] = 0; // บังคับให้ reg[0] เป็น 0 เสมอก่อนพิมพ์สถานะสุดท้าย
+                state.reg[0] = 0;
                 instrCount++;
-                printState(&state);
+                printState(&state); // โชว์สถานะตอนจบ
                 std::cout << "machine halted\n";
                 std::cout << "total of " << instrCount << " instructions executed\n";
                 std::cout << "final state of machine:\n";
-                std::exit(0);
+                std::exit(0); // ออกจากโปรแกรมไปเลย
                 break;
 
-            case 7: // noop
+            case 7: // noop: ไม่ต้องทำอะไร
                 state.pc += 1;
                 break;
 
-            default:
+            default: // เจอรหัสคำสั่งที่เครื่องไม่รู้จัก
                 std::cerr << "error: invalid opcode\n";
                 std::exit(1);
         }
 
-        // 5. บังคับกฎ Hardware Constraint และนับคำสั่ง
-        state.reg[0] = 0; // reg[0] ต้องเป็น 0 เสมอ
+        // กฎเหล็กของเครื่องนี้: รีจิสเตอร์ตัวแรก (reg[0]) ต้องเป็น 0 เสมอ ห้ามแอบเปลี่ยนค่า!
+        state.reg[0] = 0;
         instrCount++;
     }
 
     return 0;
 }
 
+// ฟังก์ชันสำหรับปริ้น stateStruct ของระบบออกมาดูบนหน้าจอ
 void printState(stateType *statePtr)
 {
     int i;
