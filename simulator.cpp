@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cstdio>
 
+using namespace std;
+
 // กำหนดขนาดของระบบ : Memory มี 65536 ช่อง และมีที่เก็บข้อมูลพักชั่วคราว รีจิสเตอร์ 8 ตัว
 #define NUMMEMORY 65536
 #define NUMREGS 8
@@ -29,15 +31,15 @@ int convertNum(int num) {
 int main(int argc, char *argv[]) {
     // เช็คก่อนว่าตอนสั่งรันโปรแกรม มี machine code มาด้วยไหม
     if (argc != 2) {
-        std::cerr << "error: usage: " << argv[0] << " <machine-code file>\n";
-        std::exit(1);
+        cerr << "error: usage: " << argv[0] << " <machine-code file>\n";
+        exit(1);
     }
 
     // เปิด machine code
-    std::ifstream filePtr(argv[1]);
+    ifstream filePtr(argv[1]);
     if (!filePtr) {
-        std::cerr << "error: can't open file " << argv[1] << '\n';
-        std::exit(1);
+        cerr << "error: can't open file " << argv[1] << '\n';
+        exit(1);
     }
 
     stateType state;
@@ -68,25 +70,27 @@ int main(int argc, char *argv[]) {
 
         // เช็คความปลอดภัย : ห้ามเครื่องกระโดดไปอ่าน Memory นอกกรอบ
         if (state.pc < 0 || state.pc >= NUMMEMORY) {
-            std::cerr << "error: pc out of bounds\n";
-            std::exit(1);
+            cerr << "error: pc out of bounds\n";
+            exit(1);
         }
 
         // ดึง คำสั่ง จาก Memory บรรทัดปัจจุบัน (pc) ออกมา
         int instr = state.mem[state.pc];
 
         // แกะรหัส คำสั่งนั้น (จะเป็นตัวเลขก้อนยาวๆ ต้องตัดแบ่งเป็นส่วนๆ)
-        int opcode = (instr >> 22) & 0x7; // เลื่อนตัวเลขไปทางขวา 22 ก้าว แล้วตัดเอามาแค่ 3 ตัวท้ายสุด ชนิดของคำสั่ง (ทำอะไรดี?)
-        int rs = (instr >> 19) & 0x7;     // เลื่อนตัวเลขไปขวา 19 ก้าว แล้วตัดมา 3 ตัวท้าย (ใช้ข้อมูลจากตัวไหน)
-        int rt = (instr >> 16) & 0x7;     // เลื่อนไปขวา 16 ก้าว แล้วตัดมา 3 ตัวท้าย (ใช้ข้อมูลจากตัวไหน)
-        int rd = instr & 0x7;             // ไม่ต้องเลื่อนทิ้ง อยู่ริมขวาสุดอยู่แล้ว ตัด 3 ตัวท้ายออกมาได้เลย (เก็บผลลัพธ์ไว้ที่ไหน)
-        int imm16 = instr & 0xFFFF;       // ม่ต้องเลื่อน แต่เปลี่ยนแม่พิมพ์ให้ใหญ่ขึ้นเป็นตัดเอา 16 ตัวท้ายออกมาเลย (ตัวเลขพิเศษ)
+        int opcode = (instr >> 22) & 0x7;
+        int rs = (instr >> 19) & 0x7;
+        int rt = (instr >> 16) & 0x7;
+        int rd = instr & 0x7;
+        int imm16 = instr & 0xFFFF;
+        
+        int addr; // ตัวแปรสำหรับเช็คตำแหน่ง Address ใน Memory
 
         // เริ่มลงมือทำตามชนิดของคำสั่ง (opcode)
         switch (opcode) {
             case 0: // add: เอาข้อมูลมา บวก กัน
                 state.reg[rd] = state.reg[rs] + state.reg[rt];
-                state.pc += 1; // ขยับไปทำบรรทัดถัดไป
+                state.pc += 1;
                 break;
 
             case 1: // nand: เอาข้อมูลมาเทียบกันแบบ NAND
@@ -95,12 +99,22 @@ int main(int argc, char *argv[]) {
                 break;
 
             case 2: // lw: ดึง ข้อมูลจาก Memory มาเก็บในรีจิสเตอร์
-                state.reg[rt] = state.mem[state.reg[rs] + convertNum(imm16)];
+                addr = state.reg[rs] + convertNum(imm16);
+                if (addr < 0 || addr >= NUMMEMORY) {
+                    cerr << "Error: memory address out of bounds\n";
+                    exit(1);
+                }
+                state.reg[rt] = state.mem[addr];
                 state.pc += 1;
                 break;
 
             case 3: // sw: บันทึก ข้อมูลจากรีจิสเตอร์ ลงไปในเมมโมรี่
-                state.mem[state.reg[rs] + convertNum(imm16)] = state.reg[rt];
+                addr = state.reg[rs] + convertNum(imm16);
+                if (addr < 0 || addr >= NUMMEMORY) {
+                    cerr << "Error: memory address out of bounds\n";
+                    exit(1);
+                }
+                state.mem[addr] = state.reg[rt];
                 state.pc += 1;
                 break;
 
@@ -115,8 +129,8 @@ int main(int argc, char *argv[]) {
             case 5: // jalr: กระโดดและจำทางกลับ
                 {
                     int nextPC = state.pc + 1;
-                    state.pc = state.reg[rs];
-                    state.reg[rt] = nextPC;
+                    state.reg[rt] = nextPC;   // เก็บ PC+1 ไว้ใน regB ก่อน
+                    state.pc = state.reg[rs]; // แล้วค่อยกระโดดไปที่ address ใน regA
                 }
                 break;
 
@@ -124,11 +138,11 @@ int main(int argc, char *argv[]) {
                 state.pc += 1;
                 state.reg[0] = 0;
                 instrCount++;
-                printState(&state); // โชว์สถานะตอนจบ
-                std::cout << "machine halted\n";
-                std::cout << "total of " << instrCount << " instructions executed\n";
-                std::cout << "final state of machine:\n";
-                std::exit(0); // ออกจากโปรแกรมไปเลย
+                cout << "machine halted\n";
+                cout << "total of " << instrCount << " instructions executed\n";
+                cout << "final state of machine:\n";
+                printState(&state); // โชว์สถานะตอนจบ ก่อน exit
+                exit(0); // ออกจากโปรแกรมไปเลย
                 break;
 
             case 7: // noop: ไม่ต้องทำอะไร
@@ -136,11 +150,11 @@ int main(int argc, char *argv[]) {
                 break;
 
             default: // เจอรหัสคำสั่งที่เครื่องไม่รู้จัก
-                std::cerr << "error: invalid opcode\n";
-                std::exit(1);
+                cerr << "error: invalid opcode\n";
+                exit(1);
         }
 
-        // กฎเหล็กของเครื่องนี้: รีจิสเตอร์ตัวแรก (reg[0]) ต้องเป็น 0 เสมอ ห้ามแอบเปลี่ยนค่า!
+        // รีจิสเตอร์ตัวแรก (reg[0]) ต้องเป็น 0 เสมอ ห้ามแอบเปลี่ยนค่า!
         state.reg[0] = 0;
         instrCount++;
     }

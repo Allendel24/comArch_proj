@@ -179,7 +179,7 @@ namespace {
                     bi.insert(bi.end(), field0.begin(), field0.end());
                     std::vector<int> field1 = strToBinaryVec(code.at("field1"), 3);
                     bi.insert(bi.end(), field1.begin(), field1.end());
-                    Padding a vector with zeros
+                    //Padding a vector with zeros
                     for(int i=3; i<16; i++){
                         bi.push_back(0);
                     }
