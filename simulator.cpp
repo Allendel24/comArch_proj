@@ -10,7 +10,7 @@ using namespace std;
 #define NUMMEMORY 65536
 #define NUMREGS 8
 
-// สร้าง stateStruct ไว้ดูว่าตอนนี้ทำงานถึงบรรทัดไหน (pc), Memory มีอะไรบ้าง (mem), รีจิสเตอร์มีค่าเท่าไหร่ (reg)
+// สร้างโครงสร้าง stateStruct ไว้ดูว่าตอนนี้ทำงานถึงบรรทัดไหน (pc), Memory มีอะไรบ้าง (mem), รีจิสเตอร์มีค่าเท่าไหร่ (reg)
 typedef struct stateStruct {
     int pc;
     int mem[NUMMEMORY];
@@ -108,7 +108,7 @@ int main(int argc, char *argv[]) {
                 state.pc += 1;
                 break;
 
-            case 3: // sw: บันทึก ข้อมูลจากรีจิสเตอร์ ลงไปใน Memory
+            case 3: // sw: บันทึก ข้อมูลจากรีจิสเตอร์ ลงไปในเมมโมรี่
                 addr = state.reg[rs] + convertNum(imm16);
                 if (addr < 0 || addr >= NUMMEMORY) {
                     cerr << "Error: memory address out of bounds\n";
