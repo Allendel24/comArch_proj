@@ -1,3 +1,4 @@
 build/
 output/*.mc
 output/*.trace
+output/*.bin
